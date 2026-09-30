@@ -75,7 +75,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px 7px;b
         <div class="field"><label>Abrechnungsmonat</label><input id="month" type="month" /></div>
         <div class="field"><label>Abrechnungsdatum</label><input id="invoiceDate" type="date" /></div>
       </div>
-      <div class="actions" style="margin-top:12px"><button class="btn" onclick="window.print()">PDF / Drucken</button><button class="btn secondary" onclick="saveProfile(true)">Stammdaten speichern</button><button class="btn secondary" onclick="resetImport()">Import zurücksetzen</button></div>
+      <div class="actions" style="margin-top:12px"><button class="btn" onclick="generatePDF()">PDF-Bericht erstellen</button><button class="btn secondary" onclick="window.print()">Drucken</button><button class="btn secondary" onclick="saveProfile(true)">Stammdaten speichern</button><button class="btn secondary" onclick="resetImport()">Import zurücksetzen</button></div>
     </section>
   </div>
 
@@ -112,6 +112,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:9px 7px;b
     <div class="tablewrap"><table><thead><tr><th>Start</th><th>Ende</th><th>Netz kWh</th><th>Gesamt kWh</th></tr></thead><tbody id="txBody"></tbody></table></div>
   </section>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 <script>
 const $=id=>document.getElementById(id); let meta={}, rows=[];
 const PROFILE_KEY='dienstwagen_ladeabrechnung_profile_v2';
@@ -146,6 +147,29 @@ function update(){
  const tb=$('txBody');tb.innerHTML='';rows.forEach(r=>{const tr=document.createElement('tr');tr.innerHTML=`<td>${r['Charging start']||''}</td><td>${r['Charging end']||''}</td><td>${fmt(n(r['Charged energy from grid [kWh]']))}</td><td>${fmt(n(r['Charged energy [kWh]']))}</td>`;tb.appendChild(tr)});
  if($('file').files&&$('file').files.length){$('status').className='msg ok';$('status').textContent=rows.length?`CSV erkannt: ${rows.length} Ladevorgang/Ladevorgänge eingelesen.`:'CSV erkannt. In der Datei sind aktuell keine Ladevorgänge enthalten.';}
 }
+function generatePDF(){
+  update();
+  if(!rows.length){$('status').className='msg err';$('status').textContent='Bitte zuerst eine myAMPERFIED-CSV mit Ladevorgängen einlesen.';return;}
+  if(!window.jspdf||!window.jspdf.jsPDF){$('status').className='msg err';$('status').textContent='PDF-Modul konnte nicht geladen werden. Bitte Internetverbindung prüfen und erneut versuchen.';return;}
+  const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:'mm',format:'a4'}); const p=34;
+  const grid=rows.reduce((s,r)=>s+n(r['Charged energy from grid [kWh]']),0); const amount=grid*p/100;
+  let y=18; const left=18, right=192;
+  const line=(label,value,bold=false)=>{doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(10);doc.text(label,left,y);doc.text(String(value),right,y,{align:'right'});y+=7;};
+  doc.setFont('helvetica','bold');doc.setFontSize(18);doc.text('Dienstwagen - Ladekostenabrechnung',left,y);y+=8;
+  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.text('Abrechnungszeitraum: '+monthLabel($('month').value),left,y);y+=10;
+  doc.setDrawColor(40);doc.line(left,y,right,y);y+=8;
+  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text('ABRECHNUNGSEMPFAENGER',left,y);y+=6;
+  line('Mitarbeiter',$('employee').value||'-');line('Arbeitgeber',$('employer').value||'-');line('Fahrzeug',$('vehicle').value||'-');line('Kennzeichen',$('plate').value||'-');line('Abrechnungsdatum',dateLabel($('invoiceDate').value));y+=3;
+  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text('MESSDATEN WALLBOX',left,y);y+=6;
+  line('Wallbox',meta['Product name']||'AMPERFIED connect.business');line('Wallbox-Seriennummer',meta['Wallbox serial number']||'-');line('Messsystem',(meta['meter']||'MID').toUpperCase());line('MID-Zaehler-Seriennummer',meta['MID serial number']||'-');line('Anzahl Ladevorgaenge',rows.length);line('Geladene Energie aus dem Netz',fmt(grid)+' kWh');y+=3;
+  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text('BERECHNUNG',left,y);y+=6;
+  line('BMF-Strompreispauschale 2026',fmt(p)+' ct/kWh');line('Rechenweg',fmt(grid)+' kWh x '+fmt(p/100,4)+' EUR/kWh');y+=2;
+  doc.setFont('helvetica','bold');doc.setFontSize(13);doc.text('Erstattungsbetrag',left,y);doc.text(money(amount).replace('€','EUR'),right,y,{align:'right'});y+=12;
+  doc.setFont('helvetica','normal');doc.setFontSize(8);const source='Quelle: Bundesministerium der Finanzen (BMF), BMF-Schreiben vom 11.11.2025. Strompreispauschale 2026: 34 ct/kWh. Berechnung auf Basis der in der myAMPERFIED-Datei ausgewiesenen Netzladung.';doc.text(doc.splitTextToSize(source,right-left),left,y);
+  const filename='Ladeabrechnung_'+($('month').value||'Bericht')+'.pdf';
+  try{doc.save(filename);$('status').className='msg ok';$('status').textContent='PDF-Bericht wurde erstellt: '+filename;}catch(e){const url=doc.output('bloburl');window.open(url,'_blank');}
+}
+
 function saveProfile(showMsg=false){
  const data={employee:$('employee').value,employer:$('employer').value,vehicle:$('vehicle').value,plate:$('plate').value};
  localStorage.setItem(PROFILE_KEY,JSON.stringify(data));
