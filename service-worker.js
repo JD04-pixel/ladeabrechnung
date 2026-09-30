@@ -1,4 +1,4 @@
-const CACHE = 'ladeabrechnung-v5';
+const CACHE = 'ladeabrechnung-v6';
 
 const ASSETS = [
   './',
